@@ -15,236 +15,28 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Create scaffold, commit, push, and open PR
+      - name: Create a tiny scaffold folder
+        run: |
+          mkdir -p scaffold-test
+          echo "# IMDB-like scaffold test" > scaffold-test/README.md
+
+      - name: Commit branch and push
         env:
-          REPO: ${{ github.repository }}
           BRANCH: imdb-scaffold
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          # create or switch to branch
-          git fetch origin || true
+          # create branch if it does not exist, otherwise checkout it
           if git show-ref --verify --quiet refs/heads/${BRANCH}; then
             git checkout ${BRANCH}
           else
             git checkout -b ${BRANCH}
           fi
-
-          # Create directories (quote parenthesis folder name)
-          mkdir -p app/actor app/movie "app/(auth)" src/components src/lib src/lib/providers src/schemas public scripts tests .github/workflows src/styles src/lib/idb
-
-          # README
-          cat > README.md <<'EOF'
-# IMDB-like
-
-Scaffold for an imdb application with Next.js, TMDb/OMDb integration, TanStack Query, rate limiting, server caching, and offline features.
-EOF
-
-          # Minimal package.json
-          cat > package.json <<'EOF'
-{
-  "name": "imdb-like",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint . --ext .ts,.tsx",
-    "test": "jest",
-    "e2e": "playwright test"
-  },
-  "dependencies": {
-    "next": "13.4.8",
-    "react": "18.2.0",
-    "react-dom": "18.2.0"
-  }
-}
-EOF
-
-          # tsconfig.json
-          cat > tsconfig.json <<'EOF'
-{
-  "compilerOptions": {
-    "target": "ES2022",
-    "lib": ["DOM", "DOM.Iterable", "ESNext"],
-    "strict": true,
-    "noEmit": true,
-    "jsx": "preserve"
-  },
-  "include": ["**/*.ts", "**/*.tsx"]
-}
-EOF
-
-          # next.config.js
-          cat > next.config.js <<'EOF'
-/** @type {import('next').NextConfig} */
-const nextConfig = {
-  experimental: {
-    appDir: true
-  },
-  reactStrictMode: true
-};
-
-module.exports = nextConfig;
-EOF
-
-          # .env.example
-          cat > .env.example <<'EOF'
-TMDB_KEY=
-OMDB_KEY=
-UPSTASH_REDIS_REST_URL=
-UPSTASH_REDIS_REST_TOKEN=
-FIREBASE_SERVICE_ACCOUNT=
-SENTRY_DSN=
-EOF
-
-          # .gitignore
-          cat > .gitignore <<'EOF'
-node_modules
-.next
-.env
-.env.local
-.DS_Store
-coverage
-EOF
-
-          # app files (minimal examples)
-          mkdir -p app/actor/[id]
-          cat > app/layout.tsx <<'EOF'
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="en">
-      <body>{children}</body>
-    </html>
-  );
-}
-EOF
-
-          cat > app/head.tsx <<'EOF'
-export default function Head() {
-  return (
-    <>
-      <meta charSet="utf-8" />
-      <meta name="viewport" content="width=device-width,initial-scale=1" />
-      <title>IMDB-like</title>
-    </>
-  );
-}
-EOF
-
-          cat > app/page.tsx <<'EOF'
-export default function Page() {
-  return (
-    <main>
-      <h1>IMDB-like Home</h1>
-      <p>Search and discover movies and actors.</p>
-    </main>
-  );
-}
-EOF
-
-          cat > app/actor/[id]/page.tsx <<'EOF'
-import { notFound } from 'next/navigation';
-import ActorShell from '@/components/ActorShell';
-import FilmographyClient from '@/components/FilmographyClient';
-
-export const runtime = 'edge';
-
-export default async function ActorPage({ params }: { params: { id: string } }) {
-  const actor = { id: params.id, name: 'Actor Name', bio: 'Short bio' };
-  if (!actor) notFound();
-
-  return (
-    <main>
-      <ActorShell actor={actor} />
-      <FilmographyClient actorId={params.id} />
-    </main>
-  );
-}
-EOF
-
-          # components
-          mkdir -p src/components
-          cat > src/components/ActorShell.tsx <<'EOF'
-import React from 'react';
-
-export default function ActorShell({ actor }: { actor: any }) {
-  return (
-    <section>
-      <h2>{actor.name}</h2>
-      <p>{actor.bio}</p>
-    </section>
-  );
-}
-EOF
-
-          cat > src/components/FilmographyClient.tsx <<'EOF'
-'use client';
-import React from 'react';
-
-export default function FilmographyClient({ actorId }: { actorId: string }) {
-  return (
-    <section>
-      <h3>Filmography</h3>
-      <ul>
-        <li>Film 1</li>
-        <li>Film 2</li>
-      </ul>
-    </section>
-  );
-}
-EOF
-
-          # simple helper file
-          mkdir -p src/lib
-          cat > src/lib/remoteClient.ts <<'EOF'
-export async function remoteFetch(url: string) {
-  return fetch(url);
-}
-EOF
-
-          # create a minimal CI placeholder
-          mkdir -p .github/workflows
-          cat > .github/workflows/ci.yml <<'EOF'
-name: CI
-
-on: [push, pull_request]
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: echo "CI placeholder"
-EOF
-
-          # Add, commit, push
-          git add --all
+          git add scaffold-test
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "chore: scaffold initial app structure"
+            git commit -m "chore: add small scaffold test"
           fi
-
           git push --set-upstream origin ${BRANCH}
-
-          # create a PR if one doesn't exist
-          PR_EXISTS=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO}/pulls?head=${REPO%/*}:${BRANCH}&state=open" | jq 'length')
-          if [ "${PR_EXISTS}" = "0" ]; then
-            curl -s -X POST -H "Authorization: token ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO}/pulls" -d @- <<'JSON'
-{
-  "title": "scaffold: initial app structure",
-  "head": "'"${BRANCH}"'",
-  "base": "main",
-  "body": "This PR adds the initial scaffold (created by Actions)."
-}
-JSON
-            echo "Pull request created."
-          else
-            echo "Pull request already exists."
-          fi
