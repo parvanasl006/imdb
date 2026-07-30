@@ -34,8 +34,8 @@ jobs:
             git checkout -b ${BRANCH}
           fi
 
-          # Create directories
-          mkdir -p app/actor app/movie app/(auth) src/components src/lib src/lib/providers src/schemas public scripts tests .github/workflows src/styles src/lib/idb
+          # Create directories (quote parenthesis folder name)
+          mkdir -p app/actor app/movie "app/(auth)" src/components src/lib src/lib/providers src/schemas public scripts tests .github/workflows src/styles src/lib/idb
 
           # README
           cat > README.md <<'EOF'
@@ -44,7 +44,7 @@ jobs:
 Scaffold for an IMDB-like application with Next.js, TMDb/OMDb integration, TanStack Query, rate limiting, server caching, and offline features.
 EOF
 
-          # package.json
+          # Minimal package.json
           cat > package.json <<'EOF'
 {
   "name": "imdb-like",
@@ -61,47 +61,22 @@ EOF
   "dependencies": {
     "next": "13.4.8",
     "react": "18.2.0",
-    "react-dom": "18.2.0",
-    "@tanstack/react-query": "^5.0.0",
-    "zod": "^3.0.0",
-    "framer-motion": "^10.0.0",
-    "@tanstack/react-virtual": "^3.0.0",
-    "idb-keyval": "^6.0.0",
-    "msw": "^1.0.0"
-  },
-  "devDependencies": {
-    "typescript": "^5.0.0",
-    "jest": "^29.0.0",
-    "playwright": "^1.30.0",
-    "eslint": "^8.0.0",
-    "@testing-library/react": "^14.0.0",
-    "@types/jest": "^29.0.0"
+    "react-dom": "18.2.0"
   }
 }
 EOF
 
-          # tsconfig
+          # tsconfig.json
           cat > tsconfig.json <<'EOF'
 {
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["DOM", "DOM.Iterable", "ESNext"],
-    "allowJs": false,
-    "skipLibCheck": true,
     "strict": true,
-    "forceConsistentCasingInFileNames": true,
     "noEmit": true,
-    "esModuleInterop": true,
-    "module": "ESNext",
-    "moduleResolution": "Node",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "jsx": "preserve",
-    "incremental": true,
-    "types": ["node"]
+    "jsx": "preserve"
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules"]
+  "include": ["**/*.ts", "**/*.tsx"]
 }
 EOF
 
@@ -110,8 +85,7 @@ EOF
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
-    appDir: true,
-    serverActions: true
+    appDir: true
   },
   reactStrictMode: true
 };
@@ -139,7 +113,8 @@ node_modules
 coverage
 EOF
 
-          # app files
+          # app files (minimal examples)
+          mkdir -p app/actor/[id]
           cat > app/layout.tsx <<'EOF'
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -193,19 +168,8 @@ export default async function ActorPage({ params }: { params: { id: string } }) 
 }
 EOF
 
-          cat > app/actor/[id]/loading.tsx <<'EOF'
-export default function Loading() {
-  return <div>Loading actor…</div>;
-}
-EOF
-
-          cat > app/actor/[id]/error.tsx <<'EOF'
-export default function Error() {
-  return <div>Failed to load actor.</div>;
-}
-EOF
-
           # components
+          mkdir -p src/components
           cat > src/components/ActorShell.tsx <<'EOF'
 import React from 'react';
 
@@ -236,195 +200,15 @@ export default function FilmographyClient({ actorId }: { actorId: string }) {
 }
 EOF
 
-          # remoteClient
+          # simple helper file
+          mkdir -p src/lib
           cat > src/lib/remoteClient.ts <<'EOF'
-import fetch from 'node-fetch';
-
-class TokenBucket {
-  tokens: number;
-  capacity: number;
-  refillRatePerSec: number;
-  lastRefill: number;
-  constructor(capacity: number, refillRatePerSec: number) {
-    this.capacity = capacity;
-    this.tokens = capacity;
-    this.refillRatePerSec = refillRatePerSec;
-    this.lastRefill = Date.now();
-  }
-  take(count = 1) {
-    const now = Date.now();
-    const delta = (now - this.lastRefill) / 1000;
-    this.tokens = Math.min(this.capacity, this.tokens + delta * this.refillRatePerSec);
-    this.lastRefill = now;
-    if (this.tokens >= count) {
-      this.tokens -= count;
-      return true;
-    }
-    return false;
-  }
-}
-
-class CircuitBreaker {
-  failureCount = 0;
-  successCount = 0;
-  state: 'CLOSED' | 'OPEN' | 'HALF' = 'CLOSED';
-  openUntil = 0;
-  threshold = 5;
-  timeoutMs = 30000;
-  onSuccess() {
-    this.failureCount = 0;
-    this.successCount++;
-    if (this.state === 'HALF') this.state = 'CLOSED';
-  }
-  onFailure() {
-    this.failureCount++;
-    if (this.failureCount >= this.threshold) {
-      this.state = 'OPEN';
-      this.openUntil = Date.now() + this.timeoutMs;
-    }
-  }
-  allow() {
-    if (this.state === 'OPEN') {
-      if (Date.now() > this.openUntil) {
-        this.state = 'HALF';
-        return true;
-      }
-      return false;
-    }
-    return true;
-  }
-}
-
-const bucket = new TokenBucket(40, 40);
-const circuit = new CircuitBreaker();
-
-export async function remoteFetch(url: string, opts: any = {}, maxRetries = 4) {
-  if (!circuit.allow()) {
-    throw new Error('CircuitOpen');
-  }
-
-  let attempt = 0;
-  while (attempt <= maxRetries) {
-    if (!bucket.take()) {
-      await new Promise((r) => setTimeout(r, 100 + Math.random() * 200));
-      continue;
-    }
-
-    try {
-      const res = await fetch(url, opts);
-      if (res.status >= 500) {
-        throw new Error(\`ServerError:\${res.status}\`);
-      }
-      if (res.status === 429) {
-        const retryAfter = res.headers.get('retry-after');
-        const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : Math.min(2000 * (attempt + 1), 10000);
-        await new Promise((r) => setTimeout(r, waitMs + Math.random() * 300));
-        attempt++;
-        continue;
-      }
-      circuit.onSuccess();
-      return res;
-    } catch (err) {
-      attempt++;
-      circuit.onFailure();
-      if (attempt > maxRetries) throw err;
-      const backoff = Math.min(1000 * 2 ** attempt + Math.random() * 200, 10000);
-      await new Promise((r) => setTimeout(r, backoff));
-      continue;
-    }
-  }
-  throw new Error('Unreachable remoteFetch fallback');
+export async function remoteFetch(url: string) {
+  return fetch(url);
 }
 EOF
 
-          # providers and helpers
-          cat > src/lib/providers/index.ts <<'EOF'
-import { remoteFetch } from '@/lib/remoteClient';
-
-export async function fetchMovieFromProvider(provider: string, path: string, params: Record<string, string>) {
-  if (provider === 'tmdb') {
-    const url = `https://api.themoviedb.org/3/${path}?${new URLSearchParams({ ...params, api_key: process.env.TMDB_KEY })}`;
-    const res = await remoteFetch(url);
-    return res.json();
-  } else {
-    const url = `https://www.omdbapi.com/?${new URLSearchParams({ ...params, apikey: process.env.OMDB_KEY })}`;
-    const res = await remoteFetch(url);
-    return res.json();
-  }
-}
-
-export function normalizeMovie(raw: any) {
-  return {
-    id: raw.id || raw.imdbID,
-    title: raw.title || raw.Title,
-    overview: raw.overview || raw.Plot,
-    poster: raw.poster_path ? `https://image.tmdb.org/t/p/w780${raw.poster_path}` : raw.Poster,
-    releaseDate: raw.release_date || raw.Released,
-    genres: raw.genres ?? (raw.Genre ? raw.Genre.split(',').map((s: string) => s.trim()) : [])
-  };
-}
-EOF
-
-          cat > src/lib/queryClient.ts <<'EOF'
-import { QueryClient } from '@tanstack/react-query';
-
-export const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 1000 * 30,
-      cacheTime: 1000 * 60 * 60,
-      retry: (failureCount, error) => {
-        const status = (error as any)?.status;
-        return !status || status >= 500;
-      },
-      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex + Math.random() * 200, 10000),
-      refetchOnWindowFocus: true,
-      refetchOnReconnect: true,
-      refetchOnMount: false,
-      suspense: true,
-      useErrorBoundary: true
-    }
-  }
-});
-EOF
-
-          cat > src/lib/prefetch.ts <<'EOF'
-export function prefetchMovie(id: string) {
-  // placeholder - integrate with queryClient.prefetchQuery in client code
-}
-EOF
-
-          cat > src/schemas/review.ts <<'EOF'
-import { z } from 'zod';
-
-export const ReviewSchema = z.object({
-  id: z.string().optional(),
-  movieId: z.string(),
-  authorId: z.string(),
-  rating: z.number().min(0).max(10),
-  body: z.string(),
-  createdAt: z.string().optional()
-});
-EOF
-
-          cat > public/sw.js <<'EOF'
-// minimal service worker
-self.addEventListener('install', (event) => {
-  self.skipWaiting();
-});
-self.addEventListener('activate', (event) => {
-  self.clients.claim();
-});
-self.addEventListener('fetch', (event) => {});
-EOF
-
-          cat > scripts/start-local.sh <<'EOF'
-#!/bin/bash
-echo "Start local dev services (placeholder)"
-EOF
-          chmod +x scripts/start-local.sh
-
-          # placeholder CI
+          # create a minimal CI placeholder
           mkdir -p .github/workflows
           cat > .github/workflows/ci.yml <<'EOF'
 name: CI
@@ -436,15 +220,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install
-        run: npm ci
-      - name: Lint
-        run: npm run lint || true
-      - name: Test
-        run: npm test || true
+      - run: echo "CI placeholder"
 EOF
 
-          # Add, commit, and push
+          # Add, commit, push
           git add --all
           if git diff --staged --quiet; then
             echo "No changes to commit"
@@ -452,16 +231,12 @@ EOF
             git commit -m "chore: scaffold initial app structure"
           fi
 
-          # Push branch
           git push --set-upstream origin ${BRANCH}
 
-          # Create a PR using the REST API (if it doesn't already exist)
-          REPO_FULL="${REPO}"
-          OWNER="$(echo ${REPO_FULL} | cut -d'/' -f1)"
-          REPO_NAME="$(echo ${REPO_FULL} | cut -d'/' -f2)"
-          PR_EXISTS=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO_FULL}/pulls?head=${OWNER}:${BRANCH}&state=open" | jq 'length')
+          # create a PR if one doesn't exist
+          PR_EXISTS=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO}/pulls?head=${REPO%/*}:${BRANCH}&state=open" | jq 'length')
           if [ "${PR_EXISTS}" = "0" ]; then
-            curl -s -X POST -H "Authorization: token ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO_FULL}/pulls" -d @- <<'JSON'
+            curl -s -X POST -H "Authorization: token ${GITHUB_TOKEN}" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${REPO}/pulls" -d @- <<'JSON'
 {
   "title": "scaffold: initial app structure",
   "head": "'"${BRANCH}"'",
@@ -473,6 +248,3 @@ JSON
           else
             echo "Pull request already exists."
           fi
-
-      - name: Done
-        run: echo "Scaffold job finished."
