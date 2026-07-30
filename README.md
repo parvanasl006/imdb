@@ -2,4 +2,4 @@
 
 Scaffold for an IMDB-like application with Next.js, TMDb/OMDb integration, TanStack Query, rate limiting, server caching, and offline features.
 
-This repository was initialized by GitHub Copilot.
+
